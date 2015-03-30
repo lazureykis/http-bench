@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
-	"net/url"
+	"net/http/httputil"
 	"time"
 )
 
@@ -22,11 +22,6 @@ var (
 	// Threads  = 8
 	// Connections = 10
 	// Timeout = 500 * time.Millisecond
-	_    = time.Millisecond
-	_    = fmt.Sprint("")
-	_    = log.LstdFlags
-	_    = http.DefaultMaxHeaderBytes
-	_, _ = url.Parse("http://example.com")
 )
 
 func usage() {
@@ -83,20 +78,40 @@ func outputResult(ticks *[]Tick) {
 	ticks_count := len(*ticks)
 	avg := (time.Duration)(int64(total_latency) / int64(ticks_count))
 	reqps := float64(time.Second) / float64(avg)
+	bytesps := float64(total_size) / float64(float64(total_latency)/float64(time.Second))
 	fmt.Println("Latency:", avg)
 
-	fmt.Println("Total requests:", ticks_count)
-	fmt.Println("Time worked:", total_latency)
+	// fmt.Println("Total requests:", ticks_count)
+	// fmt.Println("Time worked:", total_latency)
 	// fmt.Println("Bytes read:", total_size)
 
-	fmt.Println()
+	// fmt.Println()
 
 	fmt.Printf("%v requests in %v, %v bytes read\n", ticks_count, total_latency, total_size)
 	fmt.Printf("Requests/sec: %.2f\n", reqps)
-	fmt.Println("Transfer/sec:", float64(total_size)/float64((int64)(total_latency)/(int64)(time.Second)))
+	fmt.Printf("Transfer/sec: %v\n", formatBytes(bytesps))
 	// 71 requests in 1.04s, 43.82KB read
 	// Requests/sec:     68.37
 	// Transfer/sec:     42.20KB
+}
+
+var bytePowers = map[string]float64{
+	"TB": math.Pow(1024, 4),
+	"GB": math.Pow(1024, 3),
+	"MB": math.Pow(1024, 2),
+	"KB": math.Pow(1024, 1),
+	"B":  math.Pow(1024, 0),
+}
+
+func formatBytes(bytes float64) string {
+	limit := 2.61803398875 * bytes
+	for name, value := range bytePowers {
+		if limit > value {
+			return fmt.Sprintf("%.2f%v", bytes/value, name)
+		}
+	}
+
+	return fmt.Sprintf("%vB", bytes)
 }
 
 func startWorker(url string) (chan bool, chan Tick) {
@@ -134,13 +149,10 @@ func measureUrl(client *http.Client, url string) Tick {
 		log.Fatalln("Status is not 200:", resp)
 	}
 
-	// Compute headers length
-	data_length := resp.ContentLength
-	if resp.ContentLength == -1 {
-		var data []byte
-		data, err = ioutil.ReadAll(resp.Body)
-		data_length = int64(len(data))
-	}
+	var data []byte
+
+	data, err = httputil.DumpResponse(resp, true)
+	data_length := int64(len(data))
 
 	return Tick{Latency: duration, Size: data_length}
 }
