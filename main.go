@@ -17,7 +17,7 @@ type Tick struct {
 
 var (
 	Url      string
-	Duration time.Duration
+	Duration int64
 )
 
 func usage() {
@@ -25,7 +25,7 @@ func usage() {
 }
 
 func main() {
-	flag.DurationVar(&Duration, "d", 10*time.Second, "Duration")
+	flag.Int64Var(&Duration, "d", 10, "Duration of test")
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
@@ -39,7 +39,7 @@ func main() {
 		return
 	}
 
-	start(Url, Duration)
+	start(Url, time.Duration(int64(time.Second)*Duration))
 }
 
 func start(url string, duration time.Duration) {
