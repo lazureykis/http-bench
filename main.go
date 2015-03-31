@@ -45,21 +45,10 @@ func main() {
 func start(url string, duration time.Duration) {
 	fmt.Println("Running", duration, "test @", url)
 
-	timeout_at := time.After(duration)
-	chquit, chtick := startWorker(url)
+	chresult := startWorker(url, duration)
 
-	ticks := make([]Tick, 0)
-
-	for {
-		select {
-		case tick := <-chtick:
-			ticks = append(ticks, tick)
-		case <-timeout_at:
-			chquit <- true
-			outputResult(&ticks)
-			return
-		}
-	}
+	ticks := <-chresult
+	outputResult(&ticks)
 }
 
 func outputResult(ticks *[]Tick) {
@@ -85,25 +74,28 @@ func outputResult(ticks *[]Tick) {
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
 }
 
-func startWorker(url string) (chan bool, chan Tick) {
-	chquit := make(chan bool, 1)
-	chtick := make(chan Tick)
+func startWorker(url string, duration time.Duration) chan []Tick {
+	chresult := make(chan []Tick)
+
 	go func() {
 		client := &http.Client{
 			Timeout: 60 * time.Second,
 		}
+		ticks := make([]Tick, 0)
+		timeout_at := time.After(duration)
+
 		for {
 			select {
-			case <-chquit:
-				fmt.Println("chquit received")
+			case <-timeout_at:
+				chresult <- ticks
 				return
 			default:
-				chtick <- measureUrl(client, url)
+				ticks = append(ticks, measureUrl(client, url))
 			}
 		}
 	}()
 
-	return chquit, chtick
+	return chresult
 }
 
 func measureUrl(client *http.Client, url string) Tick {
