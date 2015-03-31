@@ -15,17 +15,20 @@ type Tick struct {
 	Latency time.Duration
 }
 
-var (
+type Config struct {
 	Url      string
-	Duration int64
-)
+	Duration time.Duration
+	Threads  int
+}
 
 func usage() {
 	fmt.Println("Usage: http-bench <options> <url>\n  Options:\n    -c, --connections <N>  Connections to keep open\n    -d, --duration    <T>  Duration of test")
 }
 
 func main() {
-	flag.Int64Var(&Duration, "d", 10, "Duration of test")
+	config := Config{}
+	flag.DurationVar(&config.Duration, "d", 10, "Duration of test")
+	flag.IntVar(&config.Threads, "t", 10, "Number of threads to use")
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
@@ -33,19 +36,19 @@ func main() {
 		return
 	}
 
-	Url = flag.Args()[0]
-	if Url == "" {
+	config.Url = flag.Args()[0]
+	if config.Url == "" {
 		usage()
 		return
 	}
 
-	start(Url, time.Duration(int64(time.Second)*Duration))
+	start(config)
 }
 
-func start(url string, duration time.Duration) {
-	fmt.Println("Running", duration, "test @", url)
+func start(config Config) {
+	fmt.Println("Running", config.Duration, "test @", config.Url)
 
-	chresult := startWorker(url, duration)
+	chresult := startWorker(config)
 
 	ticks := <-chresult
 	outputResult(&ticks)
@@ -74,7 +77,7 @@ func outputResult(ticks *[]Tick) {
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
 }
 
-func startWorker(url string, duration time.Duration) chan []Tick {
+func startWorker(config Config) chan []Tick {
 	chresult := make(chan []Tick)
 
 	go func() {
@@ -82,7 +85,7 @@ func startWorker(url string, duration time.Duration) chan []Tick {
 			Timeout: 60 * time.Second,
 		}
 		ticks := make([]Tick, 0)
-		timeout_at := time.After(duration)
+		timeout_at := time.After(config.Duration)
 
 		for {
 			select {
@@ -90,7 +93,7 @@ func startWorker(url string, duration time.Duration) chan []Tick {
 				chresult <- ticks
 				return
 			default:
-				ticks = append(ticks, measureUrl(client, url))
+				ticks = append(ticks, measureUrl(client, config.Url))
 			}
 		}
 	}()
