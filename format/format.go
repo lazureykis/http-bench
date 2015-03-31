@@ -39,6 +39,17 @@ func roundDuration(x time.Duration, precision float64) time.Duration {
 	}
 }
 
+func Reqps(r float64) string {
+	switch {
+	case r > 100:
+		return fmt.Sprintf("%.0f", r)
+	case r > 10:
+		return fmt.Sprintf("%.1f", r)
+	default:
+		return fmt.Sprintf("%.2f", r)
+	}
+}
+
 func Duration(d time.Duration) string {
 	switch {
 	case d > time.Hour:
