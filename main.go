@@ -79,8 +79,8 @@ func outputResult(ticks *[]Tick) {
 		bytesps = float64(total_size) / float64(float64(total_latency)/float64(time.Second))
 	}
 
-	fmt.Println("Latency:", avg)
-	fmt.Printf("%v requests in %v, %v read\n", ticks_count, total_latency, format.Bytes(float64(total_size)))
+	fmt.Println("Latency:", format.Duration(avg))
+	fmt.Printf("%v requests in %v, %v read\n", ticks_count, format.Duration(total_latency), format.Bytes(float64(total_size)))
 	fmt.Printf("Requests/sec: %.2f\n", reqps)
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
 }
