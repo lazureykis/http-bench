@@ -3,6 +3,7 @@ package main
 import (
 	"./format"
 	"bufio"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,11 +14,6 @@ import (
 	"strings"
 	"time"
 )
-
-type Tick struct {
-	Size    int64
-	Latency time.Duration
-}
 
 type Config struct {
 	Url         string
@@ -40,6 +36,7 @@ type Thread struct {
 	url            *url.URL
 	addr           *net.TCPAddr
 	conn           *net.TCPConn
+	tlsConn        *tls.Conn
 	complete       uint64
 	requests       uint64
 	bytes          uint64
@@ -71,14 +68,11 @@ func main() {
 		return
 	}
 
-	config.Connections = config.Threads
-
 	start(config)
 }
 
 func start(config Config) {
-	fmt.Printf("Running %v test @ %v\n", config.Duration, config.Url)
-	fmt.Printf("  %v threads and %v connections\n", config.Threads, config.Connections)
+	fmt.Printf("Running %v test @ %v using %v threads.\n", config.Duration, config.Url, config.Threads)
 
 	resolveAddr(&config)
 
@@ -101,12 +95,6 @@ func mergeResults(threads []*Thread) *Thread {
 	return threads[0]
 }
 
-func outputErrors(errors uint64, name string) {
-	if errors > 0 {
-		fmt.Println(name, "errors:", errors)
-	}
-}
-
 func outputResult(t *Thread) {
 	var avg time.Duration
 	var reqps, bytesps float64
@@ -121,11 +109,11 @@ func outputResult(t *Thread) {
 	fmt.Printf("Requests/sec: %v\n", format.Reqps(reqps))
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
 
-	outputErrors(t.errors.connect, "connect")
-	outputErrors(t.errors.write, "write")
-	outputErrors(t.errors.read, "read")
-	outputErrors(t.errors.status, "status")
-	outputErrors(t.errors.timeout, "timeout")
+	format.Errors(t.errors.connect, "connect")
+	format.Errors(t.errors.write, "write")
+	format.Errors(t.errors.read, "read")
+	format.Errors(t.errors.status, "status")
+	format.Errors(t.errors.timeout, "timeout")
 }
 
 func startWorker(config *Config, thread *Thread) {
@@ -177,7 +165,6 @@ func resolveAddr(config *Config) {
 
 func connect(t *Thread) {
 	var err error
-	t.start = time.Now()
 
 	if t.conn != nil {
 		post_request(t)
@@ -185,41 +172,79 @@ func connect(t *Thread) {
 	}
 
 	t.conn, err = net.DialTCP("tcp", nil, t.addr)
-	if err == nil {
-		post_request(t)
-	} else {
+	if err != nil {
 		t.errors.connect++
+		resetConnection(t)
+		return
 	}
+
+	if t.url.Scheme == "https" {
+		t.tlsConn = tls.Client(t.conn, &tls.Config{InsecureSkipVerify: true})
+		err = t.tlsConn.Handshake()
+		if err != nil {
+			log.Fatalln(err.Error())
+		}
+	}
+
+	post_request(t)
 }
 
 func post_request(t *Thread) {
-	req := fmt.Sprint("GET ", t.url.Path, " HTTP/1.1\r\nHost: ", t.url.Host, "\r\n\r\n")
+	req := fmt.Sprint("GET ", t.url.Path, " HTTP/1.1\r\nHost: ", t.url.Host,
+		"\r\nUser-Agent: http-bench\r\n\r\n")
 
-	_, err := fmt.Fprintf(t.conn, "%s", req)
+	t.start = time.Now()
+	var err error
+	if t.tlsConn != nil {
+		_, err = fmt.Fprint(t.tlsConn, req)
+	} else {
+		_, err = fmt.Fprint(t.conn, req)
+	}
+
 	if err != nil {
 		t.errors.write++
-		t.conn.Close()
-		t.conn = nil
+		resetConnection(t)
 	}
 
 	read_response(t)
 }
 
 func read_response(t *Thread) {
-	r := bufio.NewReader(t.conn)
+	var r *bufio.Reader
+	if t.tlsConn != nil {
+		r = bufio.NewReader(t.tlsConn)
+	} else {
+		r = bufio.NewReader(t.conn)
+	}
+
 	status, err := r.ReadString('\n')
 
 	// Read status
 	if err != nil {
 		t.errors.read++
-		t.conn.Close()
-		t.conn = nil
+		resetConnection(t)
 		return
 	}
 
-	ok := strings.Index(status, "HTTP/1.1 200") == 0
-	if !ok {
+	statusWords := strings.Split(status, " ")
+	if len(statusWords) < 3 {
+		t.errors.read++
+		resetConnection(t)
+		return
+	}
+
+	statusCode, err := strconv.ParseUint(statusWords[1], 10, 64)
+	if err != nil {
+		log.Fatalln("Cannot parse status code:", status)
+	}
+
+	if statusCode > 399 {
+		fmt.Println(status)
 		t.errors.status++
+
+		if statusCode == 400 {
+			log.Fatalln(status)
+		}
 	}
 
 	t.bytes += uint64(len(status))
@@ -233,8 +258,7 @@ func read_response(t *Thread) {
 		s, err = r.ReadString('\n')
 		if err != nil {
 			t.errors.read++
-			t.conn.Close()
-			t.conn = nil
+			resetConnection(t)
 			return
 		}
 
@@ -265,8 +289,7 @@ func read_response(t *Thread) {
 		n, err = r.Read(buf)
 		if err != nil {
 			t.errors.read++
-			t.conn.Close()
-			t.conn = nil
+			resetConnection(t)
 			return
 		}
 
@@ -274,19 +297,26 @@ func read_response(t *Thread) {
 			remains -= uint64(n)
 		}
 
-		if remains == 0 {
+		if remains <= 0 {
 			break
 		}
 	}
 
-	t.bytes += uint64(content_length)
-
 	// Completed
-	t.complete++
 	t.latency += time.Since(t.start)
+	t.bytes += uint64(content_length)
+	t.complete++
 
 	if !keep_alive {
-		t.conn.Close()
-		t.conn = nil
+		resetConnection(t)
 	}
+}
+
+func resetConnection(t *Thread) {
+	if t.tlsConn != nil {
+		t.tlsConn.Close()
+		t.tlsConn = nil
+	}
+	t.conn.Close()
+	t.conn = nil
 }

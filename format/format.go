@@ -14,6 +14,12 @@ const (
 	sizeTB = 1024 * sizeGB
 )
 
+func Errors(errors uint64, name string) {
+	if errors > 0 {
+		fmt.Println(name, "errors:", errors)
+	}
+}
+
 func Bytes(bytes float64) string {
 	switch {
 	case bytes < sizeKB:
