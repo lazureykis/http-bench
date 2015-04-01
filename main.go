@@ -101,6 +101,12 @@ func mergeResults(threads []*Thread) *Thread {
 	return threads[0]
 }
 
+func outputErrors(errors uint64, name string) {
+	if errors > 0 {
+		fmt.Println(name, "errors:", errors)
+	}
+}
+
 func outputResult(t *Thread) {
 	var avg time.Duration
 	var reqps, bytesps float64
@@ -114,8 +120,12 @@ func outputResult(t *Thread) {
 	fmt.Printf("%v requests in %v, %v read\n", t.complete, format.Duration(t.latency), format.Bytes(float64(t.bytes)))
 	fmt.Printf("Requests/sec: %v\n", format.Reqps(reqps))
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
-	fmt.Printf("Errors: %v connect, %v write, %v read, %v status, %v timeout\n", t.errors.connect, t.errors.write, t.errors.read, t.errors.status, t.errors.timeout)
-	fmt.Printf("%v\n", t)
+
+	outputErrors(t.errors.connect, "connect")
+	outputErrors(t.errors.write, "write")
+	outputErrors(t.errors.read, "read")
+	outputErrors(t.errors.status, "status")
+	outputErrors(t.errors.timeout, "timeout")
 }
 
 func startWorker(config *Config, thread *Thread) {
@@ -174,7 +184,6 @@ func connect(t *Thread) {
 		return
 	}
 
-	fmt.Println("Dialing tcp connection")
 	t.conn, err = net.DialTCP("tcp", nil, t.addr)
 	if err == nil {
 		post_request(t)
@@ -184,7 +193,8 @@ func connect(t *Thread) {
 }
 
 func post_request(t *Thread) {
-	req := fmt.Sprintf("GET %v HTTP/1.1\r\nHost: %v\r\nConnection: Keep-Alive\r\n\r\n", t.url.Path, t.url.Host)
+	req := fmt.Sprint("GET ", t.url.Path, " HTTP/1.1\r\nHost: ", t.url.Host, "\r\n\r\n")
+
 	_, err := fmt.Fprintf(t.conn, "%s", req)
 	if err != nil {
 		t.errors.write++
@@ -192,6 +202,10 @@ func post_request(t *Thread) {
 		t.conn = nil
 	}
 
+	read_response(t)
+}
+
+func read_response(t *Thread) {
 	r := bufio.NewReader(t.conn)
 	status, err := r.ReadString('\n')
 
@@ -243,10 +257,11 @@ func post_request(t *Thread) {
 		}
 	}
 
-	// Ready body.
-	buf := make([]byte, 1024)
-	var n int
+	// Read body.
+	buf := make([]byte, content_length)
+	remains := content_length
 	for {
+		var n int
 		n, err = r.Read(buf)
 		if err != nil {
 			t.errors.read++
@@ -254,19 +269,19 @@ func post_request(t *Thread) {
 			t.conn = nil
 			return
 		}
+
 		if n > 0 {
-			content_length -= uint64(n)
+			remains -= uint64(n)
 		}
-		if content_length == 0 {
+
+		if remains == 0 {
 			break
 		}
 	}
 
-	if n > 0 {
-		t.bytes += uint64(n)
-	}
+	t.bytes += uint64(content_length)
 
-	// Completed.
+	// Completed
 	t.complete++
 	t.latency += time.Since(t.start)
 
