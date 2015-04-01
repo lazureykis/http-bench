@@ -21,11 +21,11 @@ func Bytes(bytes float64) string {
 	case bytes < sizeMB:
 		return fmt.Sprintf("%.2fKB", bytes/sizeKB)
 	case bytes < sizeGB:
-		return fmt.Sprintf("%.2fKB", bytes/sizeMB)
+		return fmt.Sprintf("%.2fMB", bytes/sizeMB)
 	case bytes < sizeTB:
-		return fmt.Sprintf("%.2fKB", bytes/sizeGB)
+		return fmt.Sprintf("%.2fGB", bytes/sizeGB)
 	default:
-		return fmt.Sprintf("%.2fKB", bytes/sizeTB)
+		return fmt.Sprintf("%.2fTB", bytes/sizeTB)
 	}
 }
 
