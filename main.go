@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -128,7 +129,6 @@ func startWorker(config *Config, thread *Thread) {
 				thread.quit <- true
 				return
 			default:
-				// time.Sleep(1)
 				connect(thread)
 			}
 		}
@@ -168,6 +168,13 @@ func resolveAddr(config *Config) {
 func connect(t *Thread) {
 	var err error
 	t.start = time.Now()
+
+	if t.conn != nil {
+		post_request(t)
+		return
+	}
+
+	fmt.Println("Dialing tcp connection")
 	t.conn, err = net.DialTCP("tcp", nil, t.addr)
 	if err == nil {
 		post_request(t)
@@ -177,7 +184,7 @@ func connect(t *Thread) {
 }
 
 func post_request(t *Thread) {
-	req := fmt.Sprintf("GET %v HTTP/1.1\r\nHost: %v\r\n\r\n", t.url.Path, t.url.Host)
+	req := fmt.Sprintf("GET %v HTTP/1.1\r\nHost: %v\r\nConnection: Keep-Alive\r\n\r\n", t.url.Path, t.url.Host)
 	_, err := fmt.Fprintf(t.conn, "%s", req)
 	if err != nil {
 		t.errors.write++
@@ -185,20 +192,86 @@ func post_request(t *Thread) {
 		t.conn = nil
 	}
 
-	status, err := bufio.NewReader(t.conn).ReadString('\n')
-	if err == nil {
-		if strings.Index(status, "HTTP/1.1 200") == 0 {
-			t.latency += time.Since(t.start)
-			t.complete++
-		} else {
-			t.errors.status++
-		}
-	} else {
+	r := bufio.NewReader(t.conn)
+	status, err := r.ReadString('\n')
+
+	// Read status
+	if err != nil {
 		t.errors.read++
 		t.conn.Close()
 		t.conn = nil
+		return
 	}
 
-	t.conn.Close()
-	t.conn = nil
+	ok := strings.Index(status, "HTTP/1.1 200") == 0
+	if !ok {
+		t.errors.status++
+	}
+
+	t.bytes += uint64(len(status))
+
+	// Read headers
+	var s string
+	var content_length uint64
+	keep_alive := true
+
+	for {
+		s, err = r.ReadString('\n')
+		if err != nil {
+			t.errors.read++
+			t.conn.Close()
+			t.conn = nil
+			return
+		}
+
+		t.bytes += uint64(len(s))
+
+		headers := strings.SplitN(s, ":", 2)
+		switch strings.ToLower(headers[0]) {
+		case "content-length":
+			trimmed := strings.Trim(headers[1], " \r\n")
+			content_length, err = strconv.ParseUint(trimmed, 10, 64)
+			if err != nil {
+				log.Fatalln(err.Error())
+			}
+		case "connection":
+			keep_alive = strings.Contains(strings.ToLower(headers[1]), "keep-alive")
+		}
+
+		if s == "\r\n" {
+			break
+		}
+	}
+
+	// Ready body.
+	buf := make([]byte, 1024)
+	var n int
+	for {
+		n, err = r.Read(buf)
+		if err != nil {
+			t.errors.read++
+			t.conn.Close()
+			t.conn = nil
+			return
+		}
+		if n > 0 {
+			content_length -= uint64(n)
+		}
+		if content_length == 0 {
+			break
+		}
+	}
+
+	if n > 0 {
+		t.bytes += uint64(n)
+	}
+
+	// Completed.
+	t.complete++
+	t.latency += time.Since(t.start)
+
+	if !keep_alive {
+		t.conn.Close()
+		t.conn = nil
+	}
 }
