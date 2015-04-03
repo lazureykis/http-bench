@@ -33,18 +33,17 @@ type Errors struct {
 }
 
 type Thread struct {
-	url            *url.URL
-	addr           *net.TCPAddr
-	conn           *net.TCPConn
-	tlsConn        *tls.Conn
-	complete       uint64
-	requests       uint64
-	bytes          uint64
-	start          time.Time
-	latency        time.Duration
-	connectLatency time.Duration
-	errors         Errors
-	quit           chan bool
+	url      *url.URL
+	addr     *net.TCPAddr
+	conn     *net.TCPConn
+	tlsConn  *tls.Conn
+	complete uint64
+	requests uint64
+	bytes    uint64
+	start    time.Time
+	latency  time.Duration
+	errors   Errors
+	quit     chan bool
 }
 
 func usage() {
@@ -92,7 +91,20 @@ func start(config Config) {
 }
 
 func mergeResults(threads []*Thread) *Thread {
-	return threads[0]
+	var result Thread
+	for _, t := range threads {
+		result.bytes += t.bytes
+		result.complete += t.complete
+		result.errors.connect += t.errors.connect
+		result.errors.read += t.errors.read
+		result.errors.status += t.errors.status
+		result.errors.timeout += t.errors.timeout
+		result.errors.write += t.errors.write
+		result.latency += t.latency
+		result.requests += t.requests
+	}
+
+	return &result
 }
 
 func outputResult(t *Thread) {
