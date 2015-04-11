@@ -35,10 +35,9 @@ func Bytes(bytes float64) string {
 	}
 }
 
-// TODO: tests for this method
-func roundDuration(x time.Duration, precision float64) time.Duration {
+func RoundDuration(x time.Duration, precision float64) time.Duration {
 	mod := math.Mod(float64(x), precision)
-	if mod >= precision/2 {
+	if mod < precision/2 {
 		return x - time.Duration(mod)
 	} else {
 		return x - time.Duration(mod) + time.Duration(precision)
@@ -59,15 +58,15 @@ func Reqps(r float64) string {
 func Duration(d time.Duration) string {
 	switch {
 	case d > time.Hour:
-		d = roundDuration(d, float64(time.Hour)/100)
+		d = RoundDuration(d, float64(time.Hour)/100)
 	case d > time.Minute:
-		d = roundDuration(d, float64(time.Minute)/100)
+		d = RoundDuration(d, float64(time.Minute)/100)
 	case d > time.Second:
-		d = roundDuration(d, float64(time.Second)/100)
+		d = RoundDuration(d, float64(time.Second)/100)
 	case d > time.Millisecond:
-		d = roundDuration(d, float64(time.Millisecond)/100)
+		d = RoundDuration(d, float64(time.Millisecond)/100)
 	case d > time.Microsecond:
-		d = roundDuration(d, float64(time.Microsecond)/100)
+		d = RoundDuration(d, float64(time.Microsecond)/100)
 	}
 
 	return fmt.Sprintf("%v", d)

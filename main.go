@@ -52,7 +52,7 @@ func usage() {
 
 func main() {
 	config := Config{}
-	flag.DurationVar(&config.Duration, "d", 10, "Duration of test")
+	flag.DurationVar(&config.Duration, "d", 10*time.Second, "Duration of test")
 	flag.IntVar(&config.Threads, "t", 10, "Number of threads to use")
 	flag.Parse()
 
@@ -67,10 +67,10 @@ func main() {
 		return
 	}
 
-	start(config)
+	Start(config)
 }
 
-func start(config Config) {
+func Start(config Config) {
 	fmt.Printf("Running %v test @ %v using %v threads.\n", config.Duration, config.Url, config.Threads)
 
 	resolveAddr(&config)
@@ -78,7 +78,7 @@ func start(config Config) {
 	threads := make([]*Thread, 0)
 	for i := 0; i < config.Threads; i++ {
 		thread := Thread{addr: config.addr, url: config.url}
-		startWorker(&config, &thread)
+		StartWorker(&config, &thread)
 		threads = append(threads, &thread)
 	}
 
@@ -100,8 +100,11 @@ func mergeResults(threads []*Thread) *Thread {
 		result.errors.status += t.errors.status
 		result.errors.timeout += t.errors.timeout
 		result.errors.write += t.errors.write
-		result.latency += t.latency
 		result.requests += t.requests
+
+		if result.latency < t.latency {
+			result.latency = t.latency
+		}
 	}
 
 	return &result
@@ -128,7 +131,7 @@ func outputResult(t *Thread) {
 	format.Errors(t.errors.timeout, "timeout")
 }
 
-func startWorker(config *Config, thread *Thread) {
+func StartWorker(config *Config, thread *Thread) {
 	thread.quit = make(chan bool)
 
 	go func() {
@@ -218,10 +221,10 @@ func post_request(t *Thread) {
 		resetConnection(t)
 	}
 
-	read_response(t)
+	ReadResponse(t)
 }
 
-func read_response(t *Thread) {
+func ReadResponse(t *Thread) {
 	var r *bufio.Reader
 	if t.tlsConn != nil {
 		r = bufio.NewReader(t.tlsConn)
