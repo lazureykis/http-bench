@@ -1,12 +1,12 @@
 package main
 
 import (
-	"./format"
 	"bufio"
 	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/lazureykis/http-bench/format"
 	"log"
 	"net"
 	"net/url"
