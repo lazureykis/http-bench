@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"github.com/lazureykis/http-bench/format"
 	"log"
+	"math"
+	// "math/big"
 	"net"
 	"net/url"
+	// "sort"
 	"strconv"
 	"strings"
 	"time"
@@ -32,18 +35,22 @@ type Errors struct {
 	timeout uint64
 }
 
+type Latency []time.Duration
+
 type Thread struct {
-	url      *url.URL
-	addr     *net.TCPAddr
-	conn     *net.TCPConn
-	tlsConn  *tls.Conn
-	complete uint64
-	requests uint64
-	bytes    uint64
-	start    time.Time
-	latency  time.Duration
-	errors   Errors
-	quit     chan bool
+	url          *url.URL
+	addr         *net.TCPAddr
+	conn         *net.TCPConn
+	tlsConn      *tls.Conn
+	complete     uint64
+	requests     uint64
+	bytes        uint64
+	start        time.Time
+	sumLatency   time.Duration
+	totalLatency time.Duration
+	latency      Latency
+	errors       Errors
+	quit         chan bool
 }
 
 func usage() {
@@ -88,6 +95,7 @@ func Start(config Config) {
 
 	results := mergeResults(threads)
 	outputResult(results)
+	outputLatencyStats(results.latency)
 }
 
 func mergeResults(threads []*Thread) *Thread {
@@ -101,26 +109,61 @@ func mergeResults(threads []*Thread) *Thread {
 		result.errors.timeout += t.errors.timeout
 		result.errors.write += t.errors.write
 		result.requests += t.requests
+		result.sumLatency += t.totalLatency
 
-		if result.latency < t.latency {
-			result.latency = t.latency
+		if result.totalLatency < t.totalLatency {
+			result.totalLatency = t.totalLatency
 		}
+
+		result.latency = append(result.latency, t.latency...)
 	}
 
 	return &result
+}
+
+func outputLatencyStats(times Latency) {
+	if len(times) <= 1 {
+		return
+	}
+
+	var max time.Duration
+	var mean time.Duration
+	var sum time.Duration
+	for _, v := range times {
+		if max < v {
+			max = v
+		}
+		sum += v
+	}
+	mean = time.Duration(float64(sum) / float64(len(times)))
+
+	sum = 0
+	var isum time.Duration
+	for _, v := range times {
+		diff := int64(v - mean)
+		val := diff * diff
+		isum += time.Duration(val)
+	}
+
+	variance := time.Duration(float64(isum) / float64(len(times)-1))
+	stdev := time.Duration(math.Sqrt(float64(variance)))
+
+	fmt.Println("Mean:", format.Duration(mean))
+	fmt.Println("Stdev:", format.Duration(stdev))
+	fmt.Println("Max:", format.Duration(max))
 }
 
 func outputResult(t *Thread) {
 	var avg time.Duration
 	var reqps, bytesps float64
 	if t.complete > 0 {
-		avg = (time.Duration)(int64(t.latency) / int64(t.complete))
-		reqps = float64(time.Second) / float64(avg)
-		bytesps = float64(t.bytes) / float64(float64(t.latency)/float64(time.Second))
+		avg = (time.Duration)(int64(t.sumLatency) / int64(t.complete))
+		reqps = float64(time.Second) / (float64(t.totalLatency) / float64(t.complete))
+		bytesps = float64(t.bytes) / float64(float64(t.totalLatency)/float64(time.Second))
 	}
 
 	fmt.Println("Latency:", format.Duration(avg))
-	fmt.Printf("%v requests in %v, %v read\n", t.complete, format.Duration(t.latency), format.Bytes(float64(t.bytes)))
+	fmt.Printf("%v requests in %v, %v read\n", t.complete, format.Duration(t.totalLatency), format.Bytes(float64(t.bytes)))
 	fmt.Printf("Requests/sec: %v\n", format.Reqps(reqps))
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
 
@@ -318,7 +361,9 @@ func ReadResponse(t *Thread) {
 	}
 
 	// Completed
-	t.latency += time.Since(t.start)
+	latency := time.Since(t.start)
+	t.totalLatency += latency
+	t.latency = append(t.latency, latency)
 	t.bytes += uint64(content_length)
 	t.complete++
 
