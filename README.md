@@ -2,4 +2,7 @@
 
 Simple HTTP benchmarking tool.
 
-Usage: http-bench <options> <url>
+Usage:
+```sh
+http-bench <options> <url>
+```
