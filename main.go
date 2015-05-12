@@ -9,10 +9,8 @@ import (
 	"github.com/lazureykis/http-bench/format"
 	"log"
 	"math"
-	// "math/big"
 	"net"
 	"net/url"
-	// "sort"
 	"strconv"
 	"strings"
 	"time"
@@ -91,7 +89,6 @@ func Start(config Config) {
 
 	results := mergeResults(threads)
 	outputResult(results)
-	outputLatencyStats(results.latency)
 }
 
 func mergeResults(threads []*Thread) *Thread {
@@ -150,18 +147,16 @@ func outputLatencyStats(times Latency) {
 }
 
 func outputResult(t *Thread) {
-	var avg time.Duration
 	var reqps, bytesps float64
 	if t.complete > 0 {
-		avg = (time.Duration)(int64(t.sumLatency) / int64(t.complete))
 		reqps = float64(time.Second) / (float64(t.totalLatency) / float64(t.complete))
 		bytesps = float64(t.bytes) / float64(float64(t.totalLatency)/float64(time.Second))
 	}
 
-	fmt.Println("Latency:", format.Duration(avg))
 	fmt.Printf("%v requests in %v, %v read\n", t.complete, format.Duration(t.totalLatency), format.Bytes(float64(t.bytes)))
 	fmt.Printf("Requests/sec: %v\n", format.Reqps(reqps))
 	fmt.Printf("Transfer/sec: %v\n", format.Bytes(bytesps))
+	outputLatencyStats(t.latency)
 
 	format.Errors(t.errors.connect, "connect")
 	format.Errors(t.errors.write, "write")
