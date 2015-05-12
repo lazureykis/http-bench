@@ -1,4 +1,4 @@
-# http-bench [![Build Status](https://travis-ci.org/lazureykis/http-bench?branch=master)](https://travis-ci.org/lazureykis/http-bench)
+# http-bench
 
 Simple HTTP benchmarking tool.
 
