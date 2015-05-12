@@ -53,10 +53,6 @@ type Thread struct {
 	quit         chan bool
 }
 
-func usage() {
-	fmt.Println("Usage: http-bench <options> <url>\n  Options:\n    -c, --connections <N>  Connections to keep open\n    -d, --duration    <T>  Duration of test")
-}
-
 func main() {
 	config := Config{}
 	flag.DurationVar(&config.Duration, "d", 10*time.Second, "Duration of test")
@@ -64,13 +60,13 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
-		usage()
+		flag.Usage()
 		return
 	}
 
 	config.Url = flag.Args()[0]
 	if config.Url == "" {
-		usage()
+		flag.Usage()
 		return
 	}
 
